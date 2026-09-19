@@ -5,6 +5,7 @@ from src.schema import ReceiptExtraction
 from src.vlm.base import ExtractionBackend
 
 _DATE_PATTERN = re.compile(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b")
+_TEXT_DATE_PATTERN = re.compile(r"\b\d{1,2}\s+[A-Z]{3}\s+\d{4}\b", re.IGNORECASE)
 _MONEY_PATTERN = re.compile(r"\d+\.\d{2}")
 _EXCLUDE_KEYWORDS = (
     "subtotal", 
@@ -15,6 +16,8 @@ _EXCLUDE_KEYWORDS = (
     "total qty", 
     "total quantity",
 )
+_REG_NUMBER_PATTERN = re.compile(r"^\(?\d{4,10}-[A-Z]\)?$")
+_TRAILING_REG_PATTERN = re.compile(r"\s*\(?\d{4,8}-[A-Z]\)?\s*$")
 
 def find_date(ocr_text: str) -> str | None:
     match = _DATE_PATTERN.search(ocr_text)
@@ -65,8 +68,37 @@ def find_vendor_name(ocr_text: str) -> str | None:
     for line in ocr_text.splitlines():
         stripped = line.strip()
         if len(stripped) >= 3 and not _MONEY_PATTERN.search(stripped) and any(c.isalpha() for c in stripped):
-            return stripped
+            return _TRAILING_REG_PATTERN.sub("", stripped).strip()
     return None
+
+def find_vendor_address(ocr_text: str, vendor_name: str | None) -> str | None:
+    if vendor_name is None:
+        return None
+
+    lines = ocr_text.splitlines()
+
+    start = None
+    for i, line in enumerate(lines):
+        if _TRAILING_REG_PATTERN.sub("", line.strip()).strip() == vendor_name.strip():
+            start = i+1
+            break
+    if start is None:
+        return None
+
+    address_lines = []
+    for line in lines[start:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _REG_NUMBER_PATTERN.match(stripped):
+            continue
+        if _MONEY_PATTERN.search(stripped) or _DATE_PATTERN.search(stripped) or _TEXT_DATE_PATTERN.search(stripped):
+            break
+        if len(address_lines) >=3:
+            break
+        address_lines.append(stripped)
+
+    return ", ".join(address_lines) if address_lines else None
 
 class HeuristicOcrBackend(ExtractionBackend):
     name = "heuristic_ocr"
@@ -75,8 +107,10 @@ class HeuristicOcrBackend(ExtractionBackend):
         if not ocr_text:
             raise ValueError("HeuristicOcrBackend requires ocr_text")
 
+        vendor_name=find_vendor_name(ocr_text)
         return ReceiptExtraction(
-            vendor_name=find_vendor_name(ocr_text),
+            vendor_name=vendor_name,
+            vendor_address=find_vendor_address(ocr_text, vendor_name),
             transaction_date=find_date(ocr_text),
             total=find_total(ocr_text),
         )
@@ -88,5 +122,6 @@ if __name__ == "__main__":
     example = load_example("030")
     # result = backend.extract(example.image_path, ocr_text=example.ocr_text)
     # print("Extracted: ", result)
-    print("Grond truth vendor: ", example.ground_truth.get("company"))
-    print("Extracted vendor: ", find_vendor_name(example.ocr_text))
+    vendor = find_vendor_name(example.ocr_text)
+    print("Grond truth address: ", example.ground_truth.get("address"))
+    print("Extracted address: ", find_vendor_address(example.ocr_text, vendor))
