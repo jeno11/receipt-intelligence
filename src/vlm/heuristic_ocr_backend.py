@@ -61,6 +61,13 @@ def find_total(ocr_text: str) -> float | None:
 
     return _first_matching_amount(lines, is_plain_total)
 
+def find_vendor_name(ocr_text: str) -> str | None:
+    for line in ocr_text.splitlines():
+        stripped = line.strip()
+        if len(stripped) >= 3 and not _MONEY_PATTERN.search(stripped) and any(c.isalpha() for c in stripped):
+            return stripped
+    return None
+
 class HeuristicOcrBackend(ExtractionBackend):
     name = "heuristic_ocr"
 
@@ -69,6 +76,7 @@ class HeuristicOcrBackend(ExtractionBackend):
             raise ValueError("HeuristicOcrBackend requires ocr_text")
 
         return ReceiptExtraction(
+            vendor_name=find_vendor_name(ocr_text),
             transaction_date=find_date(ocr_text),
             total=find_total(ocr_text),
         )
@@ -76,7 +84,9 @@ class HeuristicOcrBackend(ExtractionBackend):
 if __name__ == "__main__":
     from src.data_loader import load_example
 
-    backend = HeuristicOcrBackend()
-    example = load_example("000")
-    result = backend.extract(example.image_path, ocr_text=example.ocr_text)
-    print("Extracted: ", result)
+    # backend = HeuristicOcrBackend()
+    example = load_example("030")
+    # result = backend.extract(example.image_path, ocr_text=example.ocr_text)
+    # print("Extracted: ", result)
+    print("Grond truth vendor: ", example.ground_truth.get("company"))
+    print("Extracted vendor: ", find_vendor_name(example.ocr_text))

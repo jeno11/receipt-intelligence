@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from src.data_loader import load_split
@@ -8,6 +9,14 @@ _DATE_FORMATS = [
     "%d/%m/%y", "%d-%m-%y", "%d.%m.%y",
 ]
 TOTAL_TOLERANCE = 0.01
+
+def normalize_text(s: str | None) -> str | None:
+    if not s:
+        return ""
+    s = s.lower().strip()
+    s = re.sub(r"\s+", " ", s) # collapse multiple spaces / newlines into one
+    s = re.sub(r"[^\w\s]", "", s) # strip punctuation
+    return s
 
 def normalize_date(s: str | None) -> tuple[int, int, int] | None:
     """
@@ -27,9 +36,14 @@ def normalize_date(s: str | None) -> tuple[int, int, int] | None:
 def evaluate(backend, examples):
     date_correct = 0
     total_correct = 0
+    vendor_correct = 0
 
     for example in examples:
         prediction = backend.extract(example.image_path, ocr_text=example.ocr_text)
+
+        if normalize_text(prediction.vendor_name) == normalize_text(example.ground_truth.get("company")):
+            if normalize_text(example.ground_truth.get("company")): # don't count if ground truth itself is empty
+                vendor_correct += 1
 
         gt_date = normalize_date(example.ground_truth.get("date"))
         pred_date = normalize_date(prediction.transaction_date)
@@ -52,8 +66,20 @@ def evaluate(backend, examples):
     print(f"Evaluated on {n} receipts")
     print(f"Date accuracy: {date_correct}/{n} = {date_correct / n:.1%}")
     print(f"Total accuracy: {total_correct}/{n} = {total_correct / n:.1%}")
+    print(f"Vendor accuracy: {vendor_correct} / {n} = {vendor_correct / n:.1%}")
 
 if __name__ == "__main__":
     _, eval_examples = load_split()
     backend = HeuristicOcrBackend()
     evaluate(backend, eval_examples)
+
+    print("\n--- Vendor name mismatches (first 10) ---")
+    shown = 0
+    for example in eval_examples:
+        prediction = backend.extract(example.image_path, ocr_text=example.ocr_text)
+        gt_vendor = example.ground_truth.get("company")
+        if normalize_text(prediction.vendor_name) != normalize_text(gt_vendor):
+            print(f"{example.receipt_id}: gt={gt_vendor!r} pred={prediction.vendor_name!r}")
+            shown += 1
+            if shown >= 10:
+                break
