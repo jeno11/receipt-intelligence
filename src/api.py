@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
 load_dotenv()
 
@@ -19,6 +19,12 @@ def health():
 
 @app.post("/extract", response_model=ReceiptExtraction)
 async def extract(file: UploadFile = File(...)):
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Expected an image file, got content-type '{file.content_type}'",
+        )
+    
     suffix = Path(file.filename).suffix or ".jpg"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -26,5 +32,9 @@ async def extract(file: UploadFile = File(...)):
 
     try:
         return backend.extract(tmp_path)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"The model returned data we couldn't parse: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Extraction failed: {e}")
     finally:
         tmp_path.unlink(missing_ok=True)
