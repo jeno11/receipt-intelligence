@@ -2,12 +2,11 @@ import re
 from datetime import datetime
 
 from src.data_loader import load_split
+from src.schema import ReceiptExtraction
+from dateutil import parser as date_parser
 from src.vlm.heuristic_ocr_backend import HeuristicOcrBackend
 
-_DATE_FORMATS = [
-    "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y",
-    "%d/%m/%y", "%d-%m-%y", "%d.%m.%y",
-]
+_ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}")
 TOTAL_TOLERANCE = 0.01
 
 def normalize_text(s: str | None) -> str | None:
@@ -25,22 +24,30 @@ def normalize_date(s: str | None) -> tuple[int, int, int] | None:
     """
     if not s:
         return None
-    for fmt in _DATE_FORMATS:
-        try:
-            dt = datetime.strptime(s.strip(), fmt)
-            return (dt.year, dt.month, dt.day)
-        except ValueError:
-            continue
-    return None
+    s = s.strip()
+    try:
+        if _ISO_DATE_PATTERN.match(s):
+            dt = datetime.fromisoformat(s[:10])
+        else:
+            dt = date_parser.parse(s.strip(), dayfirst=True)
+        return (dt.year, dt.month, dt.day)
+    except (ValueError, OverflowError):
+       return None
 
 def evaluate(backend, examples):
     date_correct = 0
     total_correct = 0
     vendor_correct = 0
     address_correct = 0
+    results = []
 
     for example in examples:
-        prediction = backend.extract(example.image_path, ocr_text=example.ocr_text)
+        try:
+            prediction = backend.extract(example.image_path, ocr_text=example.ocr_text)
+            results.append((example.receipt_id, prediction, example.ground_truth))
+        except Exception as e:
+            print(f" [{example.receipt_id}] extraction failed: {e}")
+            prediction = ReceiptExtraction()
 
         if normalize_text(prediction.vendor_name) == normalize_text(example.ground_truth.get("company")):
             if normalize_text(example.ground_truth.get("company")): # don't count if ground truth itself is empty
@@ -73,6 +80,7 @@ def evaluate(backend, examples):
     print(f"Total accuracy: {total_correct}/{n} = {total_correct / n:.1%}")
     print(f"Vendor accuracy: {vendor_correct} / {n} = {vendor_correct / n:.1%}")
     print(f"Vendor address accuracy: {address_correct} / {n} = {address_correct / n:.1%}")
+    return results
 
 if __name__ == "__main__":
     _, eval_examples = load_split()
