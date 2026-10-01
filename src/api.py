@@ -19,7 +19,7 @@ def health():
     return {"status": "ok"}
 
 @app.post("/extract", response_model=ReceiptExtraction)
-async def extract(file: UploadFile = File(...)):
+def extract(file: UploadFile = File(...)):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=400,
