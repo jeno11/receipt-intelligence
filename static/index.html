@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Receipt Intelligence</title>
+        <style>
+            body {
+                font-family: -apple-system, sans-serif;
+                max-width: 480px;
+                margin: 40px auto;
+                padding: 0 16px;
+            }
+            h1 {
+                font-size: 20px;
+            }
+            #drop {
+                border: 2px dashed #999;
+                border-radius: 8px;
+                padding: 32px;
+                text-align: center;
+                color: #666;
+                cursor: pointer;
+            }
+            #drop.over {
+                border-color: #333;
+                color: #333;
+            }
+            #preview {
+                max-width: 100%;
+                margin-top: 16px;
+                border-radius: 6px;
+                display: none;
+            }
+            table {
+                width: 100%;
+                margin-top: 20px;
+                border-collapse: collapse;
+            }
+            td {
+                padding: 6px 4px;
+                border-bottom: 1px solid #eee;
+                font-size: 14px;
+                vertical-align: top;
+            }
+            td.field {
+                color: #666;
+                white-space: nowrap;
+                padding-right: 12px;
+            }
+            #status {
+                margin-top: 12px;
+                font-size: 13px;
+                color: #666;
+            }
+            #error {
+                margin-top: 12px;
+                font-size: 13px;
+                color: #b00020;
+                display: none;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Receipt Intelligence</h1>
+        <p>Upload a receipt image to extract vendor, date, address, and total.</p>
+
+        <div id="drop">Click to choose an image, or drop one here</div>
+        <input type="file" id="file-input" accept="image/*" style="display:none">
+        <img id="preview">
+
+        <div id="status"></div>
+        <div id="error"></div>
+        <table id="result" style="display:none"></table>
+
+        <script>
+            const drop = document.getElementById('drop');
+            const fileInput = document.getElementById('file-input');
+            const preview = document.getElementById('preview');
+            const statusEl = document.getElementById('status');
+            const errorEl = document.getElementById('error');
+            const resultTable = document.getElementById('result');
+
+            drop.addEventListener('click', () => fileInput.click());
+            drop.addEventListener('dragover', (e) => { 
+                e.preventDefault(); 
+                drop.classList.add('over'); 
+            });
+            drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+            drop.addEventListener('drop', (e) => {
+                e.preventDefault();
+                drop.classList.remove('over');
+                if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+            });
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files.length) handleFile(fileInput.files[0]);
+            });
+
+            function handleFile(file) {
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = 'block';
+                errorEl.style.display = 'none';
+                resultTable.style.display = 'none';
+                statusEl.textContent = 'Extracting... (calls a live model, usually a few seconds)';
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch('/extract', { method: 'POST', body: formData })
+                    .then(async (res) => {
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail || 'Extraction failed');
+                        return data;
+                    })
+                    .then((data) => {
+                        statusEl.textContent = '';
+                        resultTable.innerHTML = Object.entries(data)
+                            .map(([key, value]) => {
+                                const display = key === 'total' && typeof value === 'number' ? value.toFixed(2) : (value ?? '-');
+                                return `<tr><td class="field">${key}</td><td>${display}</td></tr>`;
+                            })
+                            .join('');
+                        resultTable.style.display = 'table';
+                    })
+                    .catch((err) => {
+                        statusEl.textContent = '';
+                        errorEl.textContent = err.message;
+                        errorEl.style.display = 'block'
+                    });
+            }
+        </script>
+    </body>
+</html>

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -38,3 +39,5 @@ async def extract(file: UploadFile = File(...)):
         raise HTTPException(status_code=502, detail=f"Extraction failed: {e}")
     finally:
         tmp_path.unlink(missing_ok=True)
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
