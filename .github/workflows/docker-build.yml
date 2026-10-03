@@ -1,0 +1,15 @@
+name: Docker build
+
+on:
+  push:
+    branches: [main]
+  pull_requests:
+    branches: [main]
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checout@v4
+      - name: Build image
+        run: docker build -t receipt-intelligence
